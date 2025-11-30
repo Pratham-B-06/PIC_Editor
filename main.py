@@ -9,6 +9,7 @@ from image_ops import ImageEditor
 from utils import pil_to_tk
 from analysis import edges, noise, histogram, sharpness, report, metrics, artifacts
 from transform_tools import create_transform_tools
+from crop_box import CropBox
 
 # --- Color Palette ---
 BG_COLOR = "#1a1a1a"
@@ -786,6 +787,200 @@ class PyPicEditorApp:
         if path:
             report.save_report_txt(text, path)
             messagebox.showinfo("Exported", f"Report saved to {path}")
+    
+    # ========== NEW MOBILE-STYLE CROP SYSTEM ==========
+    
+    def toggle_crop_mode(self):
+        """Toggle crop mode on/off with mobile-style crop box."""
+        print("DEBUG: toggle_crop_mode called")
+        if not self.current_image:
+            print("DEBUG: No current image")
+            messagebox.showwarning("No Image", "Please load an image first.")
+            return
+        
+        if hasattr(self, 'crop_box') and self.crop_box:
+            # Crop mode is active, turn it off
+            print("DEBUG: Crop mode active, canceling")
+            self.cancel_crop()
+        else:
+            # Activate crop mode
+            print("DEBUG: Activating crop mode")
+            self._activate_crop_mode()
+    
+    def _activate_crop_mode(self):
+        """Activate crop mode with CropBox."""
+        print("DEBUG: _activate_crop_mode called")
+        # Get image bounds on canvas
+        w_canvas = self.canvas.winfo_width()
+        h_canvas = self.canvas.winfo_height()
+        
+        print(f"DEBUG: Canvas size: {w_canvas}x{h_canvas}")
+        
+        if not self.current_image:
+            print("DEBUG: No current image in _activate_crop_mode")
+            return
+        
+        img_w, img_h = self.current_image.size
+        print(f"DEBUG: Image size: {img_w}x{img_h}")
+        
+        # Calculate scale and position (same as update_preview)
+        scale_w = w_canvas / img_w if img_w > 0 else 1
+        scale_h = h_canvas / img_h if img_h > 0 else 1
+        scale = min(scale_w, scale_h)
+        
+        disp_w = int(img_w * scale)
+        disp_h = int(img_h * scale)
+        
+        off_x = (w_canvas - disp_w) // 2
+        off_y = (h_canvas - disp_h) // 2
+        
+        print(f"DEBUG: Display size: {disp_w}x{disp_h}, offset: ({off_x}, {off_y})")
+        
+        # Create crop box
+        image_bounds = (off_x, off_y, disp_w, disp_h)
+        print(f"DEBUG: Creating CropBox with bounds: {image_bounds}")
+        self.crop_box = CropBox(self.canvas, image_bounds)
+        self.crop_box.draw()
+        print("DEBUG: CropBox created and drawn")
+        
+        # Update crop button visual state
+        if hasattr(self, 'transform_buttons') and 'crop' in self.transform_buttons:
+            self.transform_buttons['crop'].set_active(True)
+            print("DEBUG: Crop button set to active")
+        
+        # Show confirm/cancel buttons
+        self._show_crop_buttons()
+        print("DEBUG: Crop buttons shown")
+        
+        # Bind mouse events
+        self.canvas.bind("<Button-1>", self._on_crop_click)
+        self.canvas.bind("<B1-Motion>", self._on_crop_drag)
+        self.canvas.bind("<ButtonRelease-1>", self._on_crop_release)
+        print("DEBUG: Mouse events bound")
+    
+    def _show_crop_buttons(self):
+        """Show Confirm/Cancel buttons for crop mode."""
+        if hasattr(self, 'crop_buttons_frame') and self.crop_buttons_frame:
+            return  # Already showing
+        
+        # Create button frame in the header area (more visible)
+        # Find the header frame in center_panel
+        for widget in self.center_panel.winfo_children():
+            if isinstance(widget, ttk.Frame):
+                # This should be the header frame
+                self.crop_buttons_frame = ttk.Frame(widget, style="Panel.TFrame")
+                self.crop_buttons_frame.pack(side=tk.RIGHT, padx=5)
+                
+                ttk.Button(
+                    self.crop_buttons_frame,
+                    text="✓ Confirm",
+                    command=self.confirm_crop,
+                    width=10
+                ).pack(side=tk.LEFT, padx=2)
+                
+                ttk.Button(
+                    self.crop_buttons_frame,
+                    text="✗ Cancel",
+                    command=self.cancel_crop,
+                    width=10
+                ).pack(side=tk.LEFT, padx=2)
+                
+                print("DEBUG: Crop buttons created in header")
+                break
+    
+    def _hide_crop_buttons(self):
+        """Hide Confirm/Cancel buttons."""
+        if hasattr(self, 'crop_buttons_frame') and self.crop_buttons_frame:
+            self.crop_buttons_frame.destroy()
+            self.crop_buttons_frame = None
+    
+    def _on_crop_click(self, event):
+        """Handle mouse click in crop mode."""
+        if not hasattr(self, 'crop_box') or not self.crop_box:
+            return
+        
+        handle = self.crop_box.get_handle_at(event.x, event.y)
+        if handle:
+            self.crop_box.start_drag(event.x, event.y, handle)
+    
+    def _on_crop_drag(self, event):
+        """Handle mouse drag in crop mode."""
+        if not hasattr(self, 'crop_box') or not self.crop_box:
+            return
+        
+        self.crop_box.update_drag(event.x, event.y)
+    
+    def _on_crop_release(self, event):
+        """Handle mouse release in crop mode."""
+        if not hasattr(self, 'crop_box') or not self.crop_box:
+            return
+        
+        self.crop_box.end_drag()
+    
+    def confirm_crop(self):
+        """Apply the crop and exit crop mode."""
+        if not hasattr(self, 'crop_box') or not self.crop_box:
+            return
+        
+        # Get crop rectangle in canvas coordinates
+        crop_rect_canvas = self.crop_box.get_crop_rect()
+        rel_x, rel_y, crop_w, crop_h = crop_rect_canvas
+        
+        # Convert to image coordinates
+        w_canvas = self.canvas.winfo_width()
+        h_canvas = self.canvas.winfo_height()
+        img_w, img_h = self.current_image.size
+        
+        # Calculate scale
+        scale_w = w_canvas / img_w if img_w > 0 else 1
+        scale_h = h_canvas / img_h if img_h > 0 else 1
+        scale = min(scale_w, scale_h)
+        
+        # Convert crop box coordinates to image coordinates
+        img_x0 = int(rel_x / scale)
+        img_y0 = int(rel_y / scale)
+        img_x1 = int((rel_x + crop_w) / scale)
+        img_y1 = int((rel_y + crop_h) / scale)
+        
+        # Clamp to image bounds
+        img_x0 = max(0, min(img_x0, img_w))
+        img_y0 = max(0, min(img_y0, img_h))
+        img_x1 = max(0, min(img_x1, img_w))
+        img_y1 = max(0, min(img_y1, img_h))
+        
+        # Apply crop
+        if img_x1 - img_x0 > 10 and img_y1 - img_y0 > 10:
+            cropped_img = self.current_image.crop((img_x0, img_y0, img_x1, img_y1))
+            self.original_image = cropped_img
+            self.current_image = cropped_img.copy()
+            
+            # Exit crop mode
+            self.cancel_crop()
+            
+            # Reset controls and update preview
+            self.reset_controls()
+            self.update_preview()
+        else:
+            messagebox.showwarning("Invalid Crop", "Crop area too small.")
+    
+    def cancel_crop(self):
+        """Cancel crop mode and remove crop box."""
+        # Clear crop box
+        if hasattr(self, 'crop_box') and self.crop_box:
+            self.crop_box.clear()
+            self.crop_box = None
+        
+        # Hide buttons
+        self._hide_crop_buttons()
+        
+        # Update crop button visual state
+        if hasattr(self, 'transform_buttons') and 'crop' in self.transform_buttons:
+            self.transform_buttons['crop'].set_active(False)
+        
+        # Restore normal mouse bindings
+        self.canvas.bind("<Button-1>", lambda e: None)
+        self.canvas.bind("<B1-Motion>", lambda e: None)
+        self.canvas.bind("<ButtonRelease-1>", lambda e: None)
 
 if __name__ == "__main__":
     root = tk.Tk()

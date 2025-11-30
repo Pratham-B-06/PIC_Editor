@@ -9,6 +9,7 @@ class CircularButton(tk.Canvas):
         self.hover_color = hover_color
         self.text_color = text_color
         self.size = size
+        self.is_active = False  # Track active state
         
         # Draw Circle
         pad = 4
@@ -34,18 +35,21 @@ class CircularButton(tk.Canvas):
         self.tag_bind(self.label, "<Enter>", self.on_enter)
         
     def on_enter(self, event):
-        self.itemconfig(self.circle, fill=self.hover_color)
-        self.itemconfig(self.icon, fill="#121212") # Dark icon on bright bg
+        if not self.is_active:  # Only change on hover if not active
+            self.itemconfig(self.circle, fill=self.hover_color)
+            self.itemconfig(self.icon, fill="#121212") # Dark icon on bright bg
         
     def on_leave(self, event):
-        self.itemconfig(self.circle, fill=self.bg_color)
-        self.itemconfig(self.icon, fill=self.text_color)
+        if not self.is_active:  # Only revert if not active
+            self.itemconfig(self.circle, fill=self.bg_color)
+            self.itemconfig(self.icon, fill=self.text_color)
         
     def on_click(self, event):
         if self.command:
             self.command()
 
     def set_active(self, is_active):
+        self.is_active = is_active
         if is_active:
             self.itemconfig(self.circle, fill=self.hover_color)
             self.itemconfig(self.icon, fill="#121212")
